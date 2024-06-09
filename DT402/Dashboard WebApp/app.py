@@ -138,6 +138,8 @@ def revenue_generation() -> Response:
     return jsonify({"dates": dates, "revenues": revenues})
 
 
+
+
 @app.route("/api/product_category_popularity")
 def product_category_popularity() -> Response:
     query = """
@@ -155,21 +157,49 @@ def product_category_popularity() -> Response:
     return jsonify({"categories": categories, "sales": sales})
 
 
+from flask import request, jsonify, Response
+from datetime import datetime
+
 @app.route("/api/payment_method_popularity")
 def payment_method_popularity() -> Response:
-    query = """
-    SELECT pm.method_name, COUNT(p.payment_id) AS transaction_count
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    page = int(request.args.get('page', 1))
+    limit = int(request.args.get('limit', 10))
+    offset = (page - 1) * limit
+
+    base_query = """
+    SELECT pm.method_name, COUNT(p.payment_id) AS transaction_count, SUM(p.amount) AS total_amount
     FROM payments p
     JOIN payment_methods pm ON p.method_id = pm.method_id
-    GROUP BY pm.method_name
-    ORDER BY transaction_count DESC;
     """
-    result = query_db(query)
+
+    where_clauses = []
+    if start_date:
+        where_clauses.append(f"p.transaction_date >= '{start_date}'")
+    if end_date:
+        where_clauses.append(f"p.transaction_date <= '{end_date}'")
+
+    if where_clauses:
+        base_query += " WHERE " + " AND ".join(where_clauses)
+
+    final_query = f"""
+    {base_query}
+    GROUP BY pm.method_name
+    ORDER BY transaction_count DESC
+    LIMIT {limit} OFFSET {offset};
+    """
+
+    try:
+        result = query_db(final_query)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
     methods = [row[0] for row in result]
     counts = [row[1] for row in result]
-    return jsonify({"methods": methods, "counts": counts})
+    totals = [row[2] for row in result]
+    return jsonify({"methods": methods, "counts": counts, "totals": totals})
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False)
